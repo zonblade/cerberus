@@ -1,5 +1,6 @@
 mod pages;
 mod route;
+mod visor;
 
 use crossterm::{
     cursor,
