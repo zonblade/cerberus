@@ -10,9 +10,11 @@ open-source PASC Tools (PASCT) to find vulnerability or target.this tools is `no
 
 ### Web Application Scanner
 
+* [ ] Act as Human as Possible
 * [ ] Page URL (Mapper/Follower)
 * [ ] External (Depedent/URL) Mapper
 * [ ] Web Application Source Mapper
+* [ ] Web API Buster
 * [ ] Technology Detection
 * [ ] Web Admin Possible Finder
 * [ ] Output Mind Map Result
