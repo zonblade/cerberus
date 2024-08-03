@@ -1,13 +1,11 @@
 ## Passive aggressive scanning CLI tools for finding vulnerability
 
-open-source PASC Tools (PASCT) to find vulnerability or target. 
-this tools is `non destructive` and `non intrusive` to target. 
-act as surface layer scanning tools. \
+open-source PASC Tools (PASCT) to find vulnerability or target.this tools is `non destructive` and `non intrusive` to target.act as surface layer scanning tools.
 
 ### Platform Support
 
-* [x] Linux Family
-* [x] MacOS
+* [X] Linux Family
+* [X] MacOS
 * [ ] Windows (might be never happenned lol)
 
 ### Web Application Scanner
