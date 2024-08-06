@@ -22,6 +22,7 @@ pub enum SettingsMenu {
 pub enum Transition {
     To(Page),
     Quit,
+    Refresh
 }
 
 pub fn run_app<W: Write>(stdout: &mut W) -> io::Result<()> {
@@ -42,10 +43,12 @@ pub fn run_app<W: Write>(stdout: &mut W) -> io::Result<()> {
             Page::Home => match handle_home_events(stdout)? {
                 Transition::To(page) => current_page = page,
                 Transition::Quit => return Ok(()),
+                Transition::Refresh => draw_home(stdout)?,
             },
             Page::Settings(ref mut submenu) => match handle_settings_events(stdout, submenu)? {
                 Transition::To(page) => current_page = page,
                 Transition::Quit => return Ok(()),
+                Transition::Refresh => draw_settings(stdout, submenu)?,
             },
         }
     }

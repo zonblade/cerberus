@@ -14,6 +14,10 @@ pub fn handle_home_events<W: Write>(_stdout: &mut W) -> io::Result<Transition> {
                 }
                 _ => {}
             },
+            Event::Resize(_, _) => {
+                // Handle terminal resize event
+                return Ok(Transition::Refresh);
+            }
             _ => {}
         }
     }
