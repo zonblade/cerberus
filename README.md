@@ -24,6 +24,11 @@ open-source PASC Tools (PASCT) to find vulnerability or target.this tools is `no
 * [ ] Web Admin Possible Finder
 * [ ] Output Mind Map Result
 * [ ] Output JSON Result
+* [ ] NMAP
+* [ ] Laravel buster
+* [ ] React Scanner
+* [ ] Jsp Scanner
+* [ ] ASP Scanner
 
 ### Local Network Scanner
 
