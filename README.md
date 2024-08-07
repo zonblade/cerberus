@@ -1,11 +1,16 @@
+<p align="center">
+<img style="height:100%; width: 512px;" src="https://raw.githubusercontent.com/zonblade/cerberus/main/assets/logo.png"/></br>
+<span style="font-size:32px;">C E R B E R U S</span>
+</p>
+
 ## Passive aggressive scanning CLI tools for finding vulnerability
 
 open-source PASC Tools (PASCT) to find vulnerability or target.this tools is `non destructive` and `non intrusive` to target.act as surface layer scanning tools.
 
 ### Platform Support
 
-* [X] Linux Family
-* [X] MacOS
+* [x] Linux Family
+* [x] MacOS
 * [ ] Windows (might be never happenned lol)
 
 ### Web Application Scanner
@@ -25,3 +30,4 @@ open-source PASC Tools (PASCT) to find vulnerability or target.this tools is `no
 * [ ] ARP Spoofing
 * [ ] Local Device Burst Fire
 * [ ] Flashbang
+
