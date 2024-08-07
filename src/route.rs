@@ -32,12 +32,6 @@ pub fn run_app<W: Write>(stdout: &mut W) -> io::Result<()> {
         // Clear the screen
         execute!(stdout, Clear(ClearType::All))?;
 
-        // Draw the interface
-        match current_page {
-            Page::Home => draw_home(stdout)?,
-            Page::Settings(ref mut submenu) => draw_settings(stdout, submenu)?,
-        }
-
         // Handle events
         match current_page {
             Page::Home => match handle_home_events(stdout)? {

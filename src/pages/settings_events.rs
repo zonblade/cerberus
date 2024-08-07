@@ -14,6 +14,9 @@ pub fn handle_settings_events<W: Write>(
     submenu: &mut SettingsMenu,
 ) -> io::Result<Transition> {
     loop {
+        execute!(stdout, Clear(ClearType::All))?;
+        draw_settings(stdout, submenu)?;
+        
         match event::read()? {
             Event::Key(key) => match key.code {
                 KeyCode::Char('q') => return Ok(Transition::Quit),
@@ -24,7 +27,5 @@ pub fn handle_settings_events<W: Write>(
             },
             _ => {}
         }
-        execute!(stdout, Clear(ClearType::All))?;
-        draw_settings(stdout, submenu)?;
     }
 }
