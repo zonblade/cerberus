@@ -5,9 +5,9 @@ use crossterm::{
 };
 use std::io::{self, Write};
 
-use crate::route::{Page, SettingsMenu, Transition};
+use crate::route::{Page, Transition};
 
-use super::settings::draw_settings;
+use super::{settings::draw_settings, settings_typing::SettingsMenu};
 
 pub fn handle_settings_events<W: Write>(
     stdout: &mut W,

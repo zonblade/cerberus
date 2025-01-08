@@ -6,17 +6,12 @@ use std::io::{self, Write};
 
 use crate::pages::{
     home::draw_home, home_events::handle_home_events, settings::draw_settings,
-    settings_events::handle_settings_events,
+    settings_events::handle_settings_events, settings_typing::SettingsMenu,
 };
 
 pub enum Page {
     Home,
     Settings(SettingsMenu),
-}
-
-pub enum SettingsMenu {
-    General,
-    Advanced,
 }
 
 pub enum Transition {

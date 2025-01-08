@@ -9,9 +9,9 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
 };
 
-use crate::route::{Page, SettingsMenu, Transition};
+use crate::route::{Page, Transition};
 
-use super::home::{draw_home_footer, draw_home_header, HOME_MENU};
+use super::{home::{draw_home_footer, draw_home_header, HOME_MENU}, settings_typing::SettingsMenu};
 
 const VISIBLE_ROWS: usize = 13;
 

@@ -2,7 +2,7 @@ use std::io::{self, Write};
 
 use crossterm::{cursor, execute};
 
-use crate::route::SettingsMenu;
+use crate::pages::settings_typing::SettingsMenu;
 
 pub fn draw_settings<W: Write>(stdout: &mut W, submenu: &SettingsMenu) -> io::Result<()> {
     let submenu_text = match submenu {
