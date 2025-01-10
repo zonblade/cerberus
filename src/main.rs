@@ -1,6 +1,7 @@
 mod pages;
 mod route;
 mod visor;
+mod elements;
 
 use crossterm::{
     cursor,
@@ -12,7 +13,8 @@ use crossterm::{
 use route::run_app;
 use std::io;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {    
+
     enable_raw_mode()?;
     
     let mut stdout = io::stdout();

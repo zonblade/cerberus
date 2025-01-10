@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 crossterm = {version = "0.28.1", features = ["event-stream"]} 
+image = "0.25.5"
+viuer = {version = "0.9.1", features = ["print-file"]}

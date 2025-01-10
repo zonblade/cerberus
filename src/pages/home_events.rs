@@ -9,7 +9,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
 };
 
-use crate::route::{Page, Transition};
+use crate::{elements::ui_oversize, route::{Page, Transition}};
 
 use super::{home::{draw_home_footer, draw_home_header, HOME_MENU}, settings_typing::SettingsMenu};
 
@@ -24,6 +24,17 @@ pub fn handle_home_events<W: Write>(stdout: &mut W) -> io::Result<Transition> {
 
     loop {
         execute!(stdout, Clear(ClearType::All))?;
+        match ui_oversize::detect(stdout) {
+            Ok(Some(Transition::Quit)) => {
+                disable_raw_mode()?;
+                execute!(stdout, DisableMouseCapture)?;
+                return Ok(Transition::Quit);
+            }
+            Ok(None) => {}
+            Err(e) => return Err(e),
+            _=>{}
+        };
+
         draw_home_header(stdout)?;
         for i in 0..VISIBLE_ROWS {
             if let Some(line) = HOME_MENU.get(start_index + i) {
@@ -71,6 +82,17 @@ pub fn handle_home_events<W: Write>(stdout: &mut W) -> io::Result<Transition> {
                     } else if start_index + VISIBLE_ROWS < HOME_MENU.len() {
                         start_index += 1;
                     }
+                }
+                KeyCode::Enter => {
+                    disable_raw_mode()?;
+                    execute!(stdout, DisableMouseCapture)?;
+                    return Ok(match HOME_MENU[active_index] {
+                        "Web Scanner" => Transition::To(Page::Home),
+                        "Framework Scanner" => Transition::To(Page::Home),
+                        "Geo IP" => Transition::To(Page::GeoIP),
+                        "Network Tools" => Transition::To(Page::Home),
+                        _ => Transition::To(Page::Home),
+                    });
                 }
                 _ => {}
             },
