@@ -1,11 +1,11 @@
 use crossterm::{
-    event::{self, Event, KeyCode},
+    event::{self, DisableMouseCapture, Event, KeyCode},
     execute,
-    terminal::{Clear, ClearType},
+    terminal::{disable_raw_mode, Clear, ClearType},
 };
 use std::io::{self, Write};
 
-use crate::route::{Page, Transition};
+use crate::{elements::ui_oversize, route::{Page, Transition}};
 
 use super::{settings::draw_settings, settings_typing::SettingsMenu};
 
@@ -15,6 +15,17 @@ pub fn handle_settings_events<W: Write>(
 ) -> io::Result<Transition> {
     loop {
         execute!(stdout, Clear(ClearType::All))?;
+        match ui_oversize::detect(stdout) {
+            Ok(Some(Transition::Quit)) => {
+                disable_raw_mode()?;
+                execute!(stdout, DisableMouseCapture)?;
+                return Ok(Transition::Quit);
+            }
+            Ok(None) => {}
+            Err(e) => return Err(e),
+            _=>{}
+        };
+        
         draw_settings(stdout, submenu)?;
         
         match event::read()? {
