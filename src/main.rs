@@ -12,30 +12,51 @@ use crossterm::{
 };
 use route::run_app;
 use std::io;
+use log::LevelFilter;
+use env_logger::Builder;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {    
-
-    enable_raw_mode()?;
+// fn main() -> Result<(), Box<dyn std::error::Error>> {    
+//     // Initialize logger
+//     init_logger();
     
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let mut stdout = io::stdout();
-    stdout.execute(cursor::Hide)?;
+//     enable_raw_mode()?;
     
-    let res = run_app(&mut stdout);
+//     let mut stdout = io::stdout();
+//     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+//     let mut stdout = io::stdout();
+//     stdout.execute(cursor::Hide)?;
     
-    disable_raw_mode()?;
+//     let res = run_app(&mut stdout);
+    
+//     disable_raw_mode()?;
 
-    execute!(
-        stdout,
-        LeaveAlternateScreen,
-        DisableMouseCapture,
-        cursor::Show
-    )?;
+//     execute!(
+//         stdout,
+//         LeaveAlternateScreen,
+//         DisableMouseCapture,
+//         cursor::Show
+//     )?;
 
-    if let Err(err) = res {
-        println!("{:?}", err)
-    }
+//     if let Err(err) = res {
+//         println!("{:?}", err)
+//     }
 
-    Ok(())
+//     Ok(())
+// }
+
+
+// create tokio main
+#[tokio::main]
+async fn main() {
+    init_logger();
+    
+    pages::network::scanner::testx::test_scan_port_range().await;
+}
+
+
+
+// Initialize the logger with appropriate settings
+fn init_logger() {
+    println!("Testing high-performance port range scan");
+    std::env::set_var("RUST_LOG", "debug");
 }

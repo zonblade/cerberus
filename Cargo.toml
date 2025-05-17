@@ -6,4 +6,21 @@ edition = "2021"
 [dependencies]
 crossterm = {version = "0.28.1", features = ["event-stream"]} 
 image = "0.25.5"
+reqwest = { version = "0.11", features = ["json", "blocking"] }
 viuer = {version = "0.9.1", features = ["print-file"]}
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+include_dir = "0.7.4"
+pnet = "0.35.0"
+rand = "0.9.1"
+regex = "1.10.3"
+hex = "0.4.3"
+tokio = { version = "1.45.0", features = ["rt-multi-thread", "time", "net", "macros"] }
+futures = "0.3.31"
+socket2 = "0.5.9"
+num_cpus = "1.16.0"
+crossbeam-channel = "0.5.15"
+checksum = "0.2.1"
+parking_lot = "0.12.3"
+log = "0.4.27"
+env_logger = "0.11.8"
