@@ -50,7 +50,8 @@ use env_logger::Builder;
 async fn main() {
     init_logger();
     
-    pages::network::scanner::testx::test_scan_port_range().await;
+    pages::network::scanner::scan_example();
+    // pages::network::scanner_syn::scan_example().await;
 }
 
 

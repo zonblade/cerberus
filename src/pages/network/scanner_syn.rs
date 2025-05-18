@@ -16,6 +16,7 @@ use std::mem::MaybeUninit;
 pub enum PortState {
     Open,
     Closed,
+    Filtered, // Added state for ambiguous results
 }
 
 /// Target structure representing an IP:port combination
@@ -42,22 +43,21 @@ pub struct ScanConfig {
     pub max_concurrent_scans: usize, // Maximum number of concurrent scans
     pub batch_report_size: usize,  // How often to report progress
     pub retry_count: u8,           // Number of retries for ambiguous results
+    pub aggressive_mode: bool,     // Prefer speed over accuracy
 }
 
 impl Default for ScanConfig {
     fn default() -> Self {
         ScanConfig {
             targets: Vec::new(),
-            timeout_ms: 100,         // 100ms default timeout
-            max_concurrent_scans: num_cpus::get() * 50, // Scale based on CPU cores
-            batch_report_size: 100,  // Report every 100 ports
-            retry_count: 1,          // One retry by default
+            timeout_ms: 200,         // Increased default timeout
+            max_concurrent_scans: num_cpus::get() * 25, // Slightly reduced concurrency
+            batch_report_size: 100,  
+            retry_count: 1,          // Default to 1 retry for better accuracy
+            aggressive_mode: false,  // Default to balanced mode
         }
     }
 }
-
-// TCP and IP header structures remain the same as in the original code
-// ...
 
 /// Perform a highly concurrent SYN scan using raw sockets and Tokio
 pub async fn scan_ports_concurrent(config: &ScanConfig) -> Vec<ScanResult> {
@@ -85,7 +85,8 @@ pub async fn scan_ports_concurrent(config: &ScanConfig) -> Vec<ScanResult> {
     let total_targets = ipv4_targets.len();
     info!("Starting concurrent SYN scan of {} targets with up to {} concurrent scans", 
           total_targets, config.max_concurrent_scans);
-    debug!("Timeout: {}ms, Retry count: {}", config.timeout_ms, config.retry_count);
+    debug!("Timeout: {}ms, Retry count: {}, Aggressive mode: {}", 
+          config.timeout_ms, config.retry_count, config.aggressive_mode);
     
     // Create shared resources
     let concurrent_limit = Arc::new(Semaphore::new(config.max_concurrent_scans));
@@ -94,6 +95,7 @@ pub async fn scan_ports_concurrent(config: &ScanConfig) -> Vec<ScanResult> {
     let progress = Arc::new(AtomicUsize::new(0));
     let open_count = Arc::new(AtomicUsize::new(0));
     let closed_count = Arc::new(AtomicUsize::new(0));
+    let filtered_count = Arc::new(AtomicUsize::new(0));
     let scan_start = Instant::now();
     
     debug!("Creating socket pool");
@@ -151,6 +153,7 @@ pub async fn scan_ports_concurrent(config: &ScanConfig) -> Vec<ScanResult> {
         let recv_sockets = recv_sockets.clone();
         let timeout = config.timeout_ms;
         let retry_count = config.retry_count;
+        let aggressive = config.aggressive_mode;
         
         // Spawn task for this target
         tokio::spawn(async move {
@@ -159,7 +162,8 @@ pub async fn scan_ports_concurrent(config: &ScanConfig) -> Vec<ScanResult> {
                 &recv_sockets,
                 target, 
                 timeout, 
-                retry_count
+                retry_count,
+                aggressive
             ).await;
             
             // Send the result back to the collector
@@ -186,6 +190,7 @@ pub async fn scan_ports_concurrent(config: &ScanConfig) -> Vec<ScanResult> {
         let progress = progress.clone();
         let open_count = open_count.clone();
         let closed_count = closed_count.clone();
+        let filtered_count = filtered_count.clone();
         let batch_size = config.batch_report_size;
         
         tokio::spawn(async move {
@@ -201,12 +206,18 @@ pub async fn scan_ports_concurrent(config: &ScanConfig) -> Vec<ScanResult> {
                 
                 // Update counters
                 let count = progress.fetch_add(1, Ordering::SeqCst) + 1;
-                if result.state == PortState::Open {
-                    let open = open_count.fetch_add(1, Ordering::SeqCst) + 1;
-                    info!("OPEN PORT: {}:{} (responded in {}ms) [Finding #{} of scan]", 
-                         result.addr, result.port, result.response_time_ms, open);
-                } else {
-                    closed_count.fetch_add(1, Ordering::SeqCst);
+                match result.state {
+                    PortState::Open => {
+                        let open = open_count.fetch_add(1, Ordering::SeqCst) + 1;
+                        info!("OPEN PORT: {}:{} (responded in {}ms) [Finding #{} of scan]", 
+                             result.addr, result.port, result.response_time_ms, open);
+                    },
+                    PortState::Closed => {
+                        closed_count.fetch_add(1, Ordering::SeqCst);
+                    },
+                    PortState::Filtered => {
+                        filtered_count.fetch_add(1, Ordering::SeqCst);
+                    }
                 }
                 
                 // Calculate real-time scan rate
@@ -227,6 +238,7 @@ pub async fn scan_ports_concurrent(config: &ScanConfig) -> Vec<ScanResult> {
                     let ports_per_second = count as f64 / elapsed.as_secs_f64();
                     let open = open_count.load(Ordering::SeqCst);
                     let closed = closed_count.load(Ordering::SeqCst);
+                    let filtered = filtered_count.load(Ordering::SeqCst);
                     
                     let eta_seconds = if ports_per_second > 0.0 {
                         ((total_targets - count) as f64 / ports_per_second) as u64
@@ -234,9 +246,9 @@ pub async fn scan_ports_concurrent(config: &ScanConfig) -> Vec<ScanResult> {
                         0
                     };
                     
-                    info!("Progress: {:.1}% ({}/{}) - {:.1} ports/sec - {} open, {} closed - ETA: {:.1}s", 
+                    info!("Progress: {:.1}% ({}/{}) - {:.1} ports/sec - {} open, {} closed, {} filtered - ETA: {:.1}s", 
                          progress_pct, count, total_targets, ports_per_second, 
-                         open, closed, eta_seconds as f64);
+                         open, closed, filtered, eta_seconds as f64);
                          
                     // More detailed stats in debug mode
                     debug!("Memory stats: results size={}, time elapsed={:.2?}",
@@ -304,10 +316,11 @@ pub async fn scan_ports_concurrent(config: &ScanConfig) -> Vec<ScanResult> {
     let scan_rate = total_targets as f64 / total_time.as_secs_f64();
     let open = open_count.load(Ordering::SeqCst);
     let closed = closed_count.load(Ordering::SeqCst);
+    let filtered = filtered_count.load(Ordering::SeqCst);
     
     info!("Concurrent SYN scan completed: {} targets in {:.2?} ({:.2} ports/second)",
          total_targets, total_time, scan_rate);
-    info!("Found {} open ports, {} closed ports", open, closed);
+    info!("Found {} open ports, {} closed ports, {} filtered ports", open, closed, filtered);
     
     // Extra performance statistics in debug mode
     debug!("Performance stats:");
@@ -337,7 +350,12 @@ fn create_socket_pool(count: usize) -> Result<Vec<Socket>, io::Error> {
     for i in 0..count {
         match Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::TCP)) {
             Ok(socket) => {
-                // Configure the socket if needed
+                // Try to set socket options for better performance
+                if let Err(e) = socket.set_send_buffer_size(65536) {
+                    debug!("Failed to set send buffer size: {}", e);
+                    // Non-fatal, continue
+                }
+                
                 sockets.push(socket);
                 success += 1;
                 trace!("Created socket #{} for pool", i);
@@ -378,6 +396,12 @@ fn create_receiver_sockets(count: usize) -> Result<Vec<Socket>, io::Error> {
                     continue;
                 }
                 
+                // Set larger receive buffer
+                if let Err(e) = socket.set_recv_buffer_size(262144) {
+                    debug!("Failed to set receive buffer size: {}", e);
+                    // Non-fatal, continue
+                }
+                
                 // Bind to all interfaces
                 let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0);
                 if let Err(e) = socket.bind(&bind_addr.into()) {
@@ -415,13 +439,17 @@ async fn scan_single_target(
     recv_sockets: &[Socket],
     target: Target,
     timeout_ms: u64,
-    retry_count: u8
+    retry_count: u8,
+    aggressive_mode: bool
 ) -> ScanResult {
     trace!("scan_single_target starting for {}:{}", target.addr, target.port);
     
+    // Determine actual timeout to use
+    let actual_timeout = if aggressive_mode { timeout_ms } else { timeout_ms.max(200) };
+    
     // Create a hard timeout for the entire scan function
     let scan_result = tokio::time::timeout(
-        tokio::time::Duration::from_millis(timeout_ms * (retry_count as u64 + 2) + 500),
+        tokio::time::Duration::from_millis(actual_timeout * (retry_count as u64 + 2) + 500),
         async {
             // Extract IPv4 address
             let ipv4_addr = match target.addr {
@@ -438,8 +466,8 @@ async fn scan_single_target(
                 }
             };
             
-            // Generate a random source port
-            let source_port = rand::thread_rng().gen_range(49152..65535);
+            // Generate a random source port - more randomized to avoid conflicts
+            let source_port = rand::thread_rng().gen_range(30000..65000);
             let target_start = Instant::now();
             
             // Pick a socket from the pool using a simple hash
@@ -453,13 +481,17 @@ async fn scan_single_target(
             trace!("Using send_socket[{}] and recv_socket[{}] for target {}:{}",
                 socket_index, recv_index, ipv4_addr, target.port);
             
-            // Default to closed
-            let mut state = PortState::Closed;
+            // Default to filtered (ambiguous) state
+            let mut state = PortState::Filtered;
             
             // Retry loop
             for retry in 0..=retry_count {
                 if retry > 0 {
                     debug!("Retry #{} for {}:{}", retry, ipv4_addr, target.port);
+                    // Small delay between retries to avoid overwhelming the network
+                    if !aggressive_mode {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+                    }
                 }
                 
                 // Create and send the SYN packet
@@ -472,7 +504,7 @@ async fn scan_single_target(
                     ipv4_addr, target.port, source_port);
                 
                 // Async wait for response with timeout
-                let timeout_duration = Duration::from_millis(timeout_ms);
+                let timeout_duration = Duration::from_millis(actual_timeout);
                 
                 // Clone the socket to avoid borrowing issues
                 let socket_clone = match recv_socket.try_clone() {
@@ -484,49 +516,59 @@ async fn scan_single_target(
                 };
                 
                 trace!("Starting receive task for {}:{} with timeout {}ms", 
-                    ipv4_addr, target.port, timeout_ms);
+                    ipv4_addr, target.port, actual_timeout);
                 
                 let response_result = tokio::task::spawn_blocking(move || {
                     // This uses a separate thread since raw socket recv() can't be made async easily
                     let mut local_buffer = [MaybeUninit::<u8>::uninit(); 2048];
                     receive_syn_response(&socket_clone, source_port, ipv4_addr, target.port,
-                                    timeout_ms, &mut local_buffer)
+                                    actual_timeout, &mut local_buffer)
                 });
                 
                 match time::timeout(timeout_duration, response_result).await {
                     Ok(Ok(Ok(true))) => {
-                        // Port is open
+                        // Port is open - definitive result
                         state = PortState::Open;
                         trace!("Found OPEN port at {}:{}", ipv4_addr, target.port);
                         break;
                     },
                     Ok(Ok(Ok(false))) => {
-                        // Port is closed
+                        // Port is closed - definitive result
                         state = PortState::Closed;
                         trace!("Found CLOSED port at {}:{}", ipv4_addr, target.port);
                         break;
                     },
                     Ok(Ok(Err(e))) => {
                         trace!("Error receiving response from {}:{}: {}", ipv4_addr, target.port, e);
-                        // Error during receive, try again if retries left
+                        
+                        // Only mark as filtered if we've exhausted retries
                         if retry >= retry_count {
-                            debug!("Max retries reached for {}:{}, marking as closed", ipv4_addr, target.port);
-                            break;
+                            debug!("Max retries reached for {}:{}, marking as filtered", ipv4_addr, target.port);
+                            state = PortState::Filtered;
                         }
                     },
                     Ok(Err(e)) => {
                         debug!("Receive task failed for {}:{}: {}", ipv4_addr, target.port, e);
-                        // Task join error, try again if retries left
+                        
+                        // Only mark as filtered if we've exhausted retries
                         if retry >= retry_count {
-                            break;
+                            state = PortState::Filtered;
                         }
                     },
                     Err(_) => {
                         trace!("Timeout waiting for response from {}:{}", ipv4_addr, target.port);
-                        // Timeout, try again if retries left
+                        
+                        // Only mark as filtered if we've exhausted retries
                         if retry >= retry_count {
-                            debug!("Max retries reached for {}:{}, marking as closed", ipv4_addr, target.port);
-                            break;
+                            // In aggressive mode, mark timeout as closed
+                            // In balanced mode, mark timeout as filtered
+                            state = if aggressive_mode { 
+                                PortState::Closed 
+                            } else { 
+                                PortState::Filtered 
+                            };
+                            debug!("Max retries reached for {}:{}, marking as {:?}", 
+                                ipv4_addr, target.port, state);
                         }
                     }
                 }
@@ -555,7 +597,7 @@ async fn scan_single_target(
             ScanResult {
                 addr: target.addr,
                 port: target.port,
-                state: PortState::Closed,
+                state: PortState::Filtered,
                 response_time_ms: timeout_ms * (retry_count as u64 + 1),
             }
         }
@@ -650,6 +692,35 @@ fn calculate_checksum(data: &[u8]) -> u16 {
     !(sum as u16)
 }
 
+/// Attempt to determine the local interface IP for a given destination
+fn get_source_ip_for_dest(dest_ip: Ipv4Addr) -> Result<Ipv4Addr, io::Error> {
+    // Try to find local interface that would be used to reach the destination
+    // This is a simplified approach and might not work in all cases
+    if dest_ip.is_loopback() {
+        return Ok(Ipv4Addr::new(127, 0, 0, 1));
+    }
+    
+    // For local network scans, we need to try to determine the actual interface IP
+    // This is a very simplified approach
+    if dest_ip.octets()[0] == 192 && dest_ip.octets()[1] == 168 {
+        // Try common local network patterns
+        return Ok(Ipv4Addr::new(192, 168, dest_ip.octets()[2], 1));
+    }
+    
+    if dest_ip.octets()[0] == 10 {
+        // Class A private network
+        return Ok(Ipv4Addr::new(10, dest_ip.octets()[1], dest_ip.octets()[2], 1));
+    }
+    
+    if dest_ip.octets()[0] == 172 && dest_ip.octets()[1] >= 16 && dest_ip.octets()[1] <= 31 {
+        // Class B private network
+        return Ok(Ipv4Addr::new(172, dest_ip.octets()[1], dest_ip.octets()[2], 1));
+    }
+    
+    // Fallback to localhost for testing
+    Ok(Ipv4Addr::new(127, 0, 0, 1))
+}
+
 /// Send a SYN packet using a raw socket
 fn send_syn_packet(
     socket: &Socket,
@@ -659,14 +730,14 @@ fn send_syn_packet(
 ) -> Result<(), io::Error> {
     trace!("Sending SYN packet to {}:{} from source port {}", dest_ip, dest_port, source_port);
     
-    // Get the local IP
-    let local_ip = match get_default_source_ip() {
+    // Try to get the correct local IP for this destination
+    let local_ip = match get_source_ip_for_dest(dest_ip) {
         Ok(ip) => {
             trace!("Using source IP: {}", ip);
             ip
         },
         Err(e) => {
-            warn!("Failed to get default source IP: {}, fallback to localhost", e);
+            warn!("Failed to get source IP for {}: {}, fallback to localhost", dest_ip, e);
             Ipv4Addr::new(127, 0, 0, 1)
         }
     };
@@ -750,13 +821,6 @@ fn send_syn_packet(
     }
 }
 
-/// Get the default source IP address
-fn get_default_source_ip() -> Result<Ipv4Addr, io::Error> {
-    // For simplicity, use a fixed IP
-    // In a real application, determine the actual interface IP
-    Ok(Ipv4Addr::new(127, 0, 0, 1))
-}
-
 /// Receive and analyze response to SYN packet
 /// 
 /// Returns:
@@ -796,13 +860,14 @@ fn receive_syn_response(
                 // Check if it's a TCP packet from our target
                 if proto == 6 && src_ip == dest_ip {
                     // Get TCP header
-                    let tcp_offset = (ip_header.version_and_ihl & 0x0F) as usize * 4;
-                    if size < tcp_offset + TCP_HEADER_SIZE {
+                    let ip_header_size = (ip_header.version_and_ihl & 0x0F) as usize * 4;
+                    
+                    if size < ip_header_size + TCP_HEADER_SIZE {
                         trace!("Received TCP packet too small from {}:{}, continuing", src_ip, dest_port);
                         continue;
                     }
                     
-                    let tcp_header = unsafe { &*(received_data[tcp_offset..].as_ptr() as *const TcpHeader) };
+                    let tcp_header = unsafe { &*(received_data[ip_header_size..].as_ptr() as *const TcpHeader) };
                     
                     // Convert network byte order to host byte order
                     let src_port = u16::from_be(tcp_header.source_port);
@@ -826,7 +891,7 @@ fn receive_syn_response(
                             return Ok(true);
                         }
                         
-                        // RST means port is closed
+                        // RST or RST-ACK means port is closed
                         if (flags & TCP_RST_FLAG) != 0 {
                             trace!("Port {}:{} is CLOSED (RST) after checking {} packets", 
                                  dest_ip, dest_port, packets_checked);
@@ -842,8 +907,8 @@ fn receive_syn_response(
                 trace!("Received packet too small ({} bytes) to be a valid TCP response", size);
             },
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                // No data available, wait a bit (but less than before)
-                std::thread::sleep(Duration::from_micros(100));
+                // No data available, wait a bit with a shorter sleep time
+                std::thread::sleep(Duration::from_micros(50));
             },
             Err(e) => {
                 // Real error
@@ -877,10 +942,41 @@ pub fn summarize_open_ports(results: &[ScanResult]) -> HashMap<IpAddr, Vec<u16>>
         ports.sort_unstable();
     }
     
-    info!("Summary created: found {} hosts with open ports", summary.len());
-    for (addr, ports) in &summary {
-        info!("Host {} has {} open ports", addr, ports.len());
-        debug!("Open ports on {}: {:?}", addr, ports);
+    let host_count = summary.len();
+    info!("Summary created: found {} hosts with open ports", host_count);
+    
+    if host_count > 0 {
+        for (addr, ports) in &summary {
+            info!("Host {} has {} open ports", addr, ports.len());
+            if ports.len() <= 20 {
+                info!("Open ports on {}: {:?}", addr, ports);
+            } else {
+                info!("Open ports on {}: {} ports including {:?}...", 
+                     addr, ports.len(), &ports[0..10]);
+            }
+        }
+    } else {
+        warn!("No open ports found during the scan!");
+    }
+    
+    summary
+}
+
+/// Create a summary of filtered ports by IP address
+pub fn summarize_filtered_ports(results: &[ScanResult]) -> HashMap<IpAddr, Vec<u16>> {
+    let mut summary = HashMap::new();
+    
+    for result in results {
+        if result.state == PortState::Filtered {
+            summary.entry(result.addr)
+                .or_insert_with(Vec::new)
+                .push(result.port);
+        }
+    }
+    
+    // Sort port lists for better readability
+    for ports in summary.values_mut() {
+        ports.sort_unstable();
     }
     
     summary
@@ -897,22 +993,25 @@ pub fn create_port_range(addr: IpAddr, start_port: u16, end_port: u16) -> Vec<Ta
     targets
 }
 
-/// Example usage function
+/// Example usage function with balanced approach for accuracy and speed
 pub async fn scan_example() {
     use std::str::FromStr;
-    std::env::set_var("RUST_LOG", "debug");
+    std::env::set_var("RUST_LOG", "info");
     env_logger::init();
     
     // Configure scan
     let target_ip = IpAddr::from_str("127.0.0.1").unwrap();
-    let targets = create_port_range(target_ip, 4900, 5200); // Scan first 10000 ports
+    
+    // Focus on a smaller range around port 5000
+    let targets = create_port_range(target_ip, 4950, 5050);
     
     let config = ScanConfig {
         targets,
-        timeout_ms: 150,             // 100ms timeout
-        max_concurrent_scans: num_cpus::get() * 2, // Scale based on CPU cores
-        batch_report_size: 1000,     // Report progress every 1000 ports
-        retry_count: 2,              // No retries for maximum speed
+        timeout_ms: 250,            // Increased timeout for better detection
+        max_concurrent_scans: num_cpus::get() * 20, // Reduced concurrency for better accuracy
+        batch_report_size: 20,      // More frequent reporting for this small range
+        retry_count: 1,             // 1 retry for better detection
+        aggressive_mode: false,     // Balanced mode
     };
     
     // Run the scan
@@ -920,16 +1019,19 @@ pub async fn scan_example() {
     
     // Summarize results
     let summary = summarize_open_ports(&results);
+    let filtered = summarize_filtered_ports(&results);
     
     // Print summary
     println!("\n--- SCAN SUMMARY ---");
     for (ip, ports) in &summary {
         println!("{}: {} open ports {:?}", ip, ports.len(), ports);
     }
-}
-
-// Main function to run the example
-#[tokio::main]
-async fn main() {
-    scan_example().await;
+    
+    // Print filtered ports
+    if !filtered.is_empty() {
+        println!("\n--- FILTERED PORTS ---");
+        for (ip, ports) in &filtered {
+            println!("{}: {} filtered ports", ip, ports.len());
+        }
+    }
 }

@@ -252,7 +252,7 @@ pub fn scan_example() {
     };
     
     debug!("Creating port range for localhost scan");
-    let targets = create_port_range(target_ip, 1, 10000); // Scan first 1000 ports
+    let targets = create_port_range(target_ip, 4990, 5050); // Scan first 1000 ports
     
     let config = ScanConfig {
         targets,
