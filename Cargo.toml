@@ -15,7 +15,7 @@ pnet = "0.35.0"
 rand = "0.9.1"
 regex = "1.10.3"
 hex = "0.4.3"
-tokio = { version = "1.45.0", features = ["rt-multi-thread", "time", "net", "macros"] }
+tokio = { version = "1.45.0", features = ["rt-multi-thread", "time", "net", "macros", "sync"] }
 futures = "0.3.31"
 socket2 = "0.5.9"
 num_cpus = "1.16.0"
@@ -24,3 +24,4 @@ checksum = "0.2.1"
 parking_lot = "0.12.3"
 log = "0.4.27"
 env_logger = "0.11.8"
+libc = "0.2.152"
